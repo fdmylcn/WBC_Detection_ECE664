@@ -1,0 +1,77 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C++ Build directories
+build/
+bin/
+obj/
+*.exe
+*.o
+*.obj
+*.dll
+*.so
+*.lib
+*.a
+
+# Virtual Environments
+env_fix/
+venv/
+.venv/
+ENV/
+env/
+active_env/
+
+# Clinical Application (Keep the main app private and separate!)
+analysis_app/
+
+# Databases and clinical files
+*.db
+*.sqlite3
+storage/
+
+# Generated Pipeline Outputs (Keep repository clean)
+crops/
+focus_curve.png
+captured_focus_peak.png
+detected_cells.png
+synthetic_slide_in_focus.png
+wbc_results_v1.json
+focus_measure_results.xlsx
+focus_measure_results.csv
+
+# IDE / Editor Settings
+.vscode/
+.idea/
+*.suo
+*.user
+*.workspace
+*.sublime-project
+*.sublime-workspace
+
+# Frontend Dependencies and Angular Cache
+node_modules/
+.angular/
+dist/
+out-tsc/
+
+# Log Files and Temp Backups
+*.log
+backend_err.txt
+backend_log.txt
+server_error.log
+*.tmp
+*.bak
+WhatsApp Image *.jpeg
+WhatsApp Image *.jpg
+original_*.jpg
+original_*.jpeg
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Dataset folders
+TXL-PBC_Dataset/
+
