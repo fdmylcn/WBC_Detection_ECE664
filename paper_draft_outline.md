@@ -110,6 +110,9 @@ Based on these findings, digital pathology suites must enforce a strict two-tier
 *   **Tier 1 (< 10% Labeled Data):** Reject semi-supervised fine-tuning. Utilize standard supervised training to avoid catastrophic noise propagation and validation degradation.
 *   **Tier 2 ($\ge$ 10% Labeled Data):** Activate Soft Teacher with Adaptive Thresholding to automate pseudo-labeling of unlabeled clinical scans, leveraging the dynamic student-teacher setup to yield the highest possible spatial localization accuracy.
 
+### D. Visual Results
+Fig. 1 shows the general workflow of the proposed semi-supervised experimental framework, tracking data propagation from the initial labeled split through teacher training, pseudo-label generation, student consistency training, and final test evaluation. Fig. 2 illustrates representative white blood cell detection examples from the TXL-PBC test set, showing tight overlap between ground-truth bounding boxes (green) and predicted bounding boxes (red) across different cellular morphologies.
+
 ---
 
 
