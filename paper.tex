@@ -1,0 +1,339 @@
+\documentclass[conference,a4paper]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{url}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{placeins}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\begin{document}
+
+\title{Semi-Supervised White Blood Cell Detection with Limited Bounding Box Annotations}
+
+\author{
+\IEEEauthorblockN{Fadime Yalçın}
+\IEEEauthorblockA{
+\textit{Department of Electrical and Computer Engineering} \\
+\textit{Abdullah Gül University} \\
+Kayseri, Türkiye}
+}
+
+\maketitle
+
+\begin{abstract}
+Automated white blood cell (WBC) detection in peripheral blood smear images is an important preprocessing step for digital hematology workflows. However, training object detection models requires bounding box annotations, which are costly and time-consuming to obtain in medical imaging. This study investigates whether semi-supervised object detection can improve WBC localization under limited annotation conditions. Using the TXL-PBC dataset, the task was formulated as single-class WBC detection by retaining only WBC bounding boxes. Four annotation settings were evaluated: 1\%, 5\%, 10\%, and 20\% of the training set were treated as labeled (corresponding to 8, 44, 88, and 176 images), while the remaining training images were treated as unlabeled (874, 838, 794, and 706 images). A Faster R-CNN detector was used as the supervised baseline, and two semi-supervised strategies were implemented: a simplified STAC-inspired offline pseudo-labeling framework and a simplified Soft Teacher-inspired exponential moving average teacher-student framework. Fixed and adaptive confidence thresholding strategies were also compared. In addition to final detection metrics (mAP, precision, recall, and F1-score), pseudo-label quality was evaluated separately. The results showed that the supervised Faster R-CNN baseline already achieved high mAP@0.5 even at 1\% labeled data. STAC produced stable pseudo-labels across annotation ratios, while Soft Teacher with adaptive thresholding improved localization quality at 10\% and 20\% labeled data but was unstable in the 1\% and 5\% regimes. These findings indicate that pseudo-label quality analysis is essential for understanding semi-supervised detection under extreme annotation scarcity.
+\end{abstract}
+
+\begin{IEEEkeywords}
+white blood cell detection, semi-supervised object detection, pseudo-labeling, Faster R-CNN, STAC, Soft Teacher, TXL-PBC
+\end{IEEEkeywords}
+
+\section{Introduction}
+Peripheral blood smear examination is widely used in hematology because it provides visual information about blood cell morphology, distribution, and abnormal cellular patterns. In automated digital hematology systems, detecting white blood cells (WBCs) is a fundamental step before cell classification, counting, morphological scoring, or clinical decision support. If WBC localization is inaccurate, subsequent analysis stages may be negatively affected because missed or poorly localized cells can propagate errors to downstream models.
+
+Deep learning-based object detection methods have achieved strong performance in medical image analysis. However, their success usually depends on the availability of accurately annotated training data. For object detection, this requirement is more demanding than image-level classification because each target object must be localized using a bounding box. In peripheral blood smear images, annotation requires careful visual inspection and may require expert knowledge, especially when cells overlap, appear near image borders, or show staining and illumination variations.
+
+Semi-supervised object detection (SSOD) is a promising strategy for reducing annotation cost. Instead of relying only on a fully labeled dataset, SSOD uses a small labeled subset and a larger unlabeled subset. A teacher model first generates pseudo-labels on unlabeled images, and these pseudo-labels are then used to train or improve a student detector. Although SSOD methods have been studied extensively in general computer vision benchmarks, their behavior on small and specialized medical datasets is less clear. Medical datasets can introduce additional challenges such as limited visual diversity, annotation noise, and overconfident predictions under low-data conditions.
+
+This study focuses on the following research question: \textit{Can semi-supervised pseudo-labeling strategies improve WBC detection performance under limited bounding box annotations, and how does pseudo-label quality change across different annotation ratios?} To answer this question, this work evaluates WBC detection on the TXL-PBC dataset under 1\%, 5\%, 10\%, and 20\% labeled-data settings. Faster R-CNN is used as the supervised baseline. STAC-inspired and Soft Teacher-inspired semi-supervised frameworks are compared under identical splits and experimental settings.
+
+The main contributions of this study are as follows:
+\begin{itemize}
+    \item A low-annotation WBC detection benchmark is constructed using 1\%, 5\%, 10\%, and 20\% labeled subsets of the TXL-PBC training partition.
+    \item Faster R-CNN, a simplified STAC-inspired pseudo-labeling framework, and a simplified Soft Teacher-inspired teacher-student training framework are compared under identical dataset splits and random seeds.
+    \item Fixed and adaptive pseudo-label confidence thresholding strategies are evaluated.
+    \item Pseudo-label quality is analyzed separately from final detection performance using precision, recall, and F1-score.
+    \item The effect of annotation scarcity on pseudo-label noise, label starvation, and localization performance is discussed with representative failure case analysis.
+\end{itemize}
+
+\section{Related Work}
+
+\subsection{Object Detection for Blood Cell Analysis}
+Faster R-CNN is a two-stage object detector that combines a Region Proposal Network (RPN) with a Fast R-CNN detection head \cite{ren2015faster}. The RPN proposes candidate object regions, and the second stage classifies and refines these proposals. Because of its stable localization ability, Faster R-CNN is still commonly used as a strong baseline in detection studies, especially when localization accuracy is important.
+
+In blood cell detection, object detection methods have been used to localize WBCs, red blood cells (RBCs), and platelets. The TXL-PBC dataset was introduced as a curated and re-annotated peripheral blood cell detection dataset integrating multiple public resources \cite{gan2025txlpbc}. The dataset provides bounding box annotations for WBCs, RBCs, and platelets and supports benchmarking of detection models.
+
+\subsection{Semi-Supervised Object Detection}
+Semi-supervised object detection aims to use unlabeled images together with a limited labeled subset. STAC is a simple semi-supervised detection framework that first trains a detector on labeled data, generates high-confidence pseudo-labels on unlabeled data, and then trains a student model using strong data augmentations \cite{sohn2020stac}. This approach is relatively simple and effective, but its performance depends strongly on the quality of the initial teacher model and the confidence threshold used for pseudo-label filtering.
+
+Soft Teacher improves pseudo-labeling by using an online teacher-student framework \cite{xu2021softteacher}. In this approach, the teacher model is updated using the exponential moving average (EMA) of the student model. Pseudo-labels are generated dynamically during training rather than being fixed after a separate teacher-training stage. This dynamic design can improve pseudo-label quality as the student improves, but it may still be sensitive to noisy predictions when the labeled subset is extremely small.
+
+\section{Materials and Methods}
+
+\subsection{Dataset and Task Definition}
+This study uses the TXL-PBC dataset, a curated and re-annotated peripheral blood cell detection dataset. TXL-PBC contains 1,260 peripheral blood smear images and 18,143 bounding box annotations for WBCs, RBCs, and platelets \cite{gan2025txlpbc}. The official split consists of 882 training images, 252 validation images, and 126 test images.
+
+Although TXL-PBC contains three cell categories, this work focuses on single-class WBC detection. Therefore, only WBC annotations were retained, while RBC and platelet annotations were ignored during training and evaluation. This design was selected because WBC localization is the first step required for later WBC classification and morphology-based analysis.
+
+The original annotations were stored in YOLO format. Each bounding box was converted from normalized center-width-height representation to the absolute coordinate format required by Faster R-CNN:
+\begin{equation}
+x_{\min} = (c_x - w/2)W, \quad y_{\min} = (c_y - h/2)H,
+\end{equation}
+\begin{equation}
+x_{\max} = (c_x + w/2)W, \quad y_{\max} = (c_y + h/2)H,
+\end{equation}
+where $c_x$, $c_y$, $w$, and $h$ are normalized YOLO box parameters, and $W$ and $H$ are image width and height after resizing.
+
+\subsection{Low-Label Experimental Protocol}
+To simulate limited annotation conditions, the training set was divided into labeled and unlabeled pools. Four labeled-data fractions were tested: 1\%, 5\%, 10\%, and 20\%. The remaining training images were treated as unlabeled, even though their ground-truth labels were available. These hidden labels were used only for pseudo-label quality evaluation, not for student training.
+
+Specifically, the training pool was partitioned as follows:
+\begin{itemize}
+    \item \textbf{1\% Fraction:} 8 labeled images, 874 unlabeled images.
+    \item \textbf{5\% Fraction:} 44 labeled images, 838 unlabeled images.
+    \item \textbf{10\% Fraction:} 88 labeled images, 794 unlabeled images.
+    \item \textbf{20\% Fraction:} 176 labeled images, 706 unlabeled images.
+\end{itemize}
+The validation and test sets were fixed at 252 images and 126 images, respectively. A fixed random seed of 42 was used to ensure reproducible data splits and pool partitions.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\columnwidth]{fig1_workflow.png}
+\caption{Overall workflow of the semi-supervised WBC detection framework. The labeled subset is used to train the teacher detector, pseudo-labels are generated on unlabeled images using fixed or adaptive confidence thresholding, the student detector is trained using labeled and pseudo-labeled samples, and final performance is evaluated on the test set.}
+\label{fig:workflow}
+\end{figure}
+
+\subsection{Detection Models and Pseudo-Labeling Strategies}
+The supervised baseline was Faster R-CNN with a MobileNetV3-Large FPN backbone. The detector was initialized with pretrained weights, and the classification head was replaced for single-class WBC detection. Since Faster R-CNN includes the background class internally, the number of output classes was set to two: background and WBC. The supervised baseline was trained only on the labeled subset for each annotation ratio.
+
+The STAC-inspired framework consisted of three stages, as summarized in Fig.~\ref{fig:workflow}. First, a teacher detector was trained using only the labeled subset. Second, the trained teacher generated pseudo-labels on the unlabeled pool. Third, a student detector was trained using the union of the labeled subset and pseudo-labeled unlabeled images. 
+
+For fixed-threshold STAC, a confidence threshold of $\tau=0.85$ was used. Only predictions with confidence scores greater than or equal to this threshold were retained as pseudo-labels. For adaptive-threshold STAC, the threshold was computed from the distribution of teacher confidence scores:
+\begin{equation}
+\tau = \mathrm{clip}(\mu - 0.5\sigma, 0.50, 0.88),
+\end{equation}
+where $\mu$ and $\sigma$ are the mean and standard deviation of confidence scores collected from the unlabeled predictions.
+
+The Soft Teacher-inspired framework used a student detector and an EMA teacher detector. The student was optimized using labeled images and pseudo-labeled unlabeled images. The teacher was updated from the student weights using:
+\begin{equation}
+\theta_T \leftarrow \alpha \theta_T + (1-\alpha)\theta_S,
+\end{equation}
+where $\theta_T$ represents teacher parameters, $\theta_S$ represents student parameters, and $\alpha$ is the EMA coefficient set to 0.999. Two threshold strategies were tested for Soft Teacher: fixed thresholding with $\tau=0.85$ and adaptive thresholding based on the confidence-score distribution.
+
+\subsection{Clarification of Model Simplifications}
+To ensure reproducibility and manage computational complexity, simplified versions of the STAC and Soft Teacher frameworks were implemented:
+\begin{itemize}
+    \item \textbf{STAC Simplification:} Our implementation uses offline pseudo-labeling and standard PyTorch detector updates. It omits the multi-stage consistency training, bounding box regression consistency loss, and unaligned bbox matching strategy proposed in the original paper \cite{sohn2020stac}.
+    \item \textbf{Soft Teacher Simplification:} Our online framework employs a basic EMA teacher weight update and classification score filtering. We do not implement the sequential box jittering classification scores, background box selection mechanism, or regression variance selection heads described in the original implementation \cite{xu2021softteacher}.
+\end{itemize}
+
+\subsection{Evaluation Metrics}
+Final detection performance was evaluated using mAP@0.5, mAP@0.5:0.95, precision, recall, and F1-score. In addition, pseudo-label quality was evaluated separately. A pseudo-label was considered a true positive if its Intersection over Union (IoU) with a ground-truth WBC box was at least 0.5. IoU was computed as:
+\begin{equation}
+IoU = \frac{B_p \cap B_g}{B_p \cup B_g},
+\end{equation}
+where $B_p$ is the predicted box and $B_g$ is the ground-truth box. Pseudo-label precision, recall, and F1-score were then calculated from true positive, false positive, and false negative pseudo-label matches.
+
+\section{Experimental Setup}
+All experiments were implemented in Python using PyTorch and TorchVision. The TXL-PBC dataset was loaded using its official train, validation, and test folders. Images were resized to $416 \times 416$ in production mode. The model was trained using stochastic gradient descent (SGD) with a learning rate of 0.005, momentum of 0.9, and weight decay of 0.0005. The batch size was set to 4. Gradient clipping was applied for training stability. A fixed random seed of 42 was set for all runs.
+
+The supervised baseline was trained for 15 epochs. In the STAC framework, the teacher was trained for 10 epochs and the student was trained for 15 epochs. The online Soft Teacher was trained jointly for 15 epochs. Weak and strong augmentation strategies were used in the semi-supervised training pipeline. Augmentation is commonly used to improve model robustness under limited data conditions \cite{shorten2019augmentation}. In this study, weak augmentation mainly involved spatial flipping, while strong augmentation additionally involved photometric perturbations such as brightness variation, blur, noise, and cutout-style occlusion.
+
+For each annotation ratio, five configurations were evaluated:
+\begin{itemize}
+    \item Faster R-CNN supervised baseline,
+    \item STAC-inspired training with fixed threshold,
+    \item STAC-inspired training with adaptive threshold,
+    \item Soft Teacher-inspired training with fixed threshold,
+    \item Soft Teacher-inspired training with adaptive threshold.
+\end{itemize}
+
+The implementation code was uploaded to a public GitHub repository and cited in the references section \cite{githubrepo}.
+
+\section{Results and Discussion}
+
+\subsection{Detection Performance under Different Annotation Ratios}
+Table~\ref{tab:map50} presents the mAP@0.5 results across all annotation ratios. The supervised Faster R-CNN baseline achieved 0.9634 mAP@0.5 even with only 1\% labeled data. This indicates that the WBC class in TXL-PBC is visually distinctive enough for the pretrained detector to learn a strong localization model from a very small labeled subset.
+
+\begin{table}[!t]
+\caption{Test mAP@0.5 results across labeled-data fractions.}
+\label{tab:map50}
+\centering
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Method} & \textbf{1\%} & \textbf{5\%} & \textbf{10\%} & \textbf{20\%} \\
+\midrule
+Faster R-CNN baseline & 0.9634 & \textbf{0.9850} & 0.9848 & 0.9848 \\
+STAC fixed & 0.9632 & 0.9841 & \textbf{0.9850} & 0.9849 \\
+STAC adaptive & \textbf{0.9644} & 0.9849 & \textbf{0.9850} & \textbf{0.9850} \\
+Soft Teacher fixed & 0.8477 & 0.9821 & \textbf{0.9850} & \textbf{0.9850} \\
+Soft Teacher adaptive & 0.8322 & 0.9704 & \textbf{0.9850} & \textbf{0.9850} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+At 1\% labeled data, STAC adaptive achieved the highest mAP@0.5 value with 0.9644, but the improvement over the supervised baseline was small. In contrast, both Soft Teacher configurations performed worse than the supervised baseline in the 1\% setting. This suggests that online pseudo-labeling may become unstable when the initial labeled subset is too small.
+
+Table~\ref{tab:map5095} shows the mAP@0.5:0.95 results. This metric is more sensitive to bounding box localization quality because it averages AP values across multiple IoU thresholds.
+
+\begin{table}[!t]
+\caption{Test mAP@0.5:0.95 results across labeled-data fractions.}
+\label{tab:map5095}
+\centering
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Method} & \textbf{1\%} & \textbf{5\%} & \textbf{10\%} & \textbf{20\%} \\
+\midrule
+Faster R-CNN baseline & \textbf{0.7148} & 0.7189 & 0.7358 & 0.8118 \\
+STAC fixed & 0.5761 & 0.6578 & 0.7673 & 0.8022 \\
+STAC adaptive & 0.6354 & \textbf{0.7205} & 0.7555 & 0.7567 \\
+Soft Teacher fixed & 0.4669 & 0.6891 & 0.7136 & 0.7406 \\
+Soft Teacher adaptive & 0.2737 & 0.6465 & \textbf{0.8133} & \textbf{0.8323} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The mAP@0.5:0.95 results reveal differences that were not clearly visible in the mAP@0.5 table. In the 1\% setting, the supervised baseline achieved the best localization quality with 0.7148. This means that adding pseudo-labels did not improve strict localization when only 8 labeled images were available. At 10\% and 20\% labeled data, Soft Teacher adaptive achieved the highest mAP@0.5:0.95 values, reaching 0.8133 and 0.8323 respectively. This suggests that the teacher-student mechanism becomes useful once the teacher model is sufficiently reliable.
+
+Tables \ref{tab:precision}, \ref{tab:recall}, and \ref{tab:f1} report the final test Precision, Recall, and F1-score of the detectors.
+
+\begin{table}[!t]
+\caption{Final test Precision results across labeled-data fractions.}
+\label{tab:precision}
+\centering
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Method} & \textbf{1\%} & \textbf{5\%} & \textbf{10\%} & \textbf{20\%} \\
+\midrule
+Faster R-CNN baseline & 0.9275 & 1.0000 & 0.9850 & 0.9848 \\
+STAC fixed & 0.9846 & 0.9353 & 0.9924 & 1.0000 \\
+STAC adaptive & 0.9773 & 0.9776 & 0.9924 & 1.0000 \\
+Soft Teacher fixed & 0.9365 & 0.9922 & 1.0000 & 1.0000 \\
+Soft Teacher adaptive & 0.1527 & 0.3696 & 0.9924 & 1.0000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[!t]
+\caption{Final test Recall results across labeled-data fractions.}
+\label{tab:recall}
+\centering
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Method} & \textbf{1\%} & \textbf{5\%} & \textbf{10\%} & \textbf{20\%} \\
+\midrule
+Faster R-CNN baseline & 0.9624 & 0.9624 & 0.9850 & 0.9774 \\
+STAC fixed & 0.9624 & 0.9774 & 0.9850 & 0.9774 \\
+STAC adaptive & 0.9699 & 0.9850 & 0.9850 & 0.9850 \\
+Soft Teacher fixed & 0.4436 & 0.9549 & 0.9699 & 0.9774 \\
+Soft Teacher adaptive & 0.9699 & 0.9699 & 0.9850 & 0.9850 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[!t]
+\caption{Final test F1-score results across labeled-data fractions.}
+\label{tab:f1}
+\centering
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Method} & \textbf{1\%} & \textbf{5\%} & \textbf{10\%} & \textbf{20\%} \\
+\midrule
+Faster R-CNN baseline & 0.9446 & 0.9808 & 0.9850 & 0.9811 \\
+STAC fixed & 0.9734 & 0.9559 & 0.9887 & 0.9886 \\
+STAC adaptive & 0.9736 & 0.9813 & 0.9887 & 0.9924 \\
+Soft Teacher fixed & 0.6020 & 0.9732 & 0.9847 & 0.9886 \\
+Soft Teacher adaptive & 0.2638 & 0.5353 & 0.9887 & 0.9924 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Pseudo-Label Quality and Threshold Sensitivity}
+Table~\ref{tab:plf1} presents pseudo-label F1-scores for the semi-supervised methods. This analysis is important because high final detection performance does not necessarily mean that pseudo-labels were reliable. Evaluating pseudo-label quality separately helps identify whether performance degradation comes from poor pseudo-label generation or from student training behavior.
+
+\begin{table}[!t]
+\caption{Pseudo-label F1-score across labeled-data fractions.}
+\label{tab:plf1}
+\centering
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Method} & \textbf{1\%} & \textbf{5\%} & \textbf{10\%} & \textbf{20\%} \\
+\midrule
+STAC fixed & \textbf{0.9608} & 0.9629 & 0.9809 & \textbf{0.9903} \\
+STAC adaptive & 0.9461 & \textbf{0.9837} & \textbf{0.9847} & 0.9875 \\
+Soft Teacher fixed & 0.0000 & 0.0115 & 0.0000 & 0.0000 \\
+Soft Teacher adaptive & 0.2603 & 0.5157 & 0.9829 & 0.9896 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+STAC generated stable pseudo-labels across all annotation ratios. Even at 1\% labeled data, STAC fixed achieved a pseudo-label F1-score of 0.9608. This indicates that the fixed threshold of 0.85 selected fewer but more reliable predictions. STAC adaptive achieved lower F1 at 1\%, but it improved at 5\% and 10\%, showing that adaptive thresholding became more effective when the teacher had access to more labeled examples.
+
+For STAC, the final calculated adaptive thresholds were $\tau_{1\%} \approx 0.52$, $\tau_{5\%} \approx 0.58$, $\tau_{10\%} \approx 0.72$, and $\tau_{20\%} \approx 0.81$. For Soft Teacher, the final epoch dynamic thresholds converged to $\tau_{1\%} \approx 0.50$, $\tau_{5\%} \approx 0.55$, $\tau_{10\%} \approx 0.80$, and $\tau_{20\%} \approx 0.85$.
+
+Soft Teacher showed a different behavior. In the 1\% and 5\% settings, Soft Teacher adaptive produced high recall but low precision (Precision was 0.1500 and 0.3502 respectively). This indicates that it accepted many uncertain boxes as pseudo-labels, increasing false positives. At 10\% and 20\%, however, Soft Teacher adaptive produced strong pseudo-labels with F1-scores of 0.9829 and 0.9896. This explains why it achieved the best mAP@0.5:0.95 at these annotation ratios.
+
+\subsection{Error Analysis and Visual Failure Cases}
+The results show that pseudo-labeling is not always beneficial in extremely low-label regimes. When only 1\% of the training set was labeled, the teacher model was trained on only a few WBC examples. In such a case, the detector may not learn enough appearance variation and may produce overconfident but incorrect predictions. If these predictions are used as pseudo-labels, the student model can learn from false positives or poorly localized boxes.
+
+Representative visual examples of these failure modes are shown in Fig.~\ref{fig:failures}:
+\begin{itemize}
+    \item \textbf{Label Starvation (Fig.~\ref{fig:failures}a):} With a high fixed threshold ($\tau=0.85$), the model may reject most predictions, causing the unlabeled pool to contribute little or no useful training signal. In Soft Teacher fixed, this results in a pseudo-label recall of 0.00\% across multiple splits.
+    \item \textbf{Noise Propagation (Fig.~\ref{fig:failures}b):} With a permissive adaptive threshold ($\tau \approx 0.50$), the model may accept too many uncertain boxes, increasing pseudo-label recall but decreasing precision (0.1500 at 1\% labeled data). Here, a cluster of red blood cells is incorrectly predicted as a WBC, introducing noise that propagates to the student.
+    \item \textbf{Poor Localization (Fig.~\ref{fig:failures}c):} In low-data regimes, the model yields misaligned predicted bounding boxes (e.g., IoU = 0.38). Because the adaptive threshold is low, this poorly localized box is accepted as a pseudo-label, forcing the student to learn incorrect spatial boundaries.
+\end{itemize}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\columnwidth]{fig3_failures.png}
+\caption{Representative failure cases for Soft Teacher under extreme data scarcity (1\% and 5\% labeled fractions). (a) Label starvation under fixed threshold ($\tau=0.85$), where the target WBC is completely missed (Recall = 0.00). (b) Noise propagation under adaptive threshold ($\tau \approx 0.50$), where a platelet or RBC cluster is incorrectly predicted as a WBC (False Positive). (c) Poor localization under adaptive threshold ($\tau \approx 0.55$), showing a poorly aligned bounding box with a low IoU of 0.38.}
+\label{fig:failures}
+\end{figure}
+
+These findings show that semi-supervised WBC detection requires careful threshold selection. Adaptive thresholding is not automatically better than fixed thresholding. It can improve pseudo-label coverage, but it can also introduce noise when the teacher model is weak. Therefore, pseudo-label precision and recall should be monitored separately during training.
+
+\subsection{Qualitative Detection Examples}
+Fig.~\ref{fig:samples} presents representative WBC detection outputs from the TXL-PBC test set. Green boxes indicate ground-truth WBC annotations, while red boxes indicate predicted bounding boxes with confidence scores. The examples show that the detector can localize WBCs accurately under different cell morphologies, nuclear appearances, and surrounding red blood cell distributions.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\columnwidth]{fig2_detection_examples.png}
+\caption{Representative WBC detection examples from the TXL-PBC test set. Green boxes indicate ground-truth WBC annotations, while red boxes indicate predicted WBC bounding boxes with confidence scores.}
+\label{fig:samples}
+\end{figure}
+
+\FloatBarrier
+
+\section{Conclusion}
+This study evaluated semi-supervised WBC detection under limited bounding box annotations using the TXL-PBC dataset. Faster R-CNN was used as a supervised baseline, while STAC-inspired and Soft Teacher-inspired semi-supervised frameworks were compared under 1\%, 5\%, 10\%, and 20\% labeled-data settings.
+
+The results showed that the supervised Faster R-CNN baseline achieved high mAP@0.5 even with only 1\% labeled data. Therefore, semi-supervised learning did not consistently improve mAP@0.5 in all settings. However, the stricter mAP@0.5:0.95 metric and pseudo-label quality analysis revealed important differences. STAC produced stable pseudo-labels across all label fractions, while Soft Teacher adaptive was unstable under 1\% and 5\% labeled data but achieved the best localization quality at 10\% and 20\%.
+
+The main limitation of this study is that the task was simplified to single-class WBC detection. RBC and platelet detection were not included in the final evaluation. In addition, the implemented STAC and Soft Teacher frameworks were simplified versions inspired by the original methods, rather than full official reproductions. Future work should extend the analysis to multi-class blood cell detection, test additional backbones, repeat experiments with multiple random seeds, and evaluate the approach on external blood smear datasets.
+
+\section*{Acknowledgment}
+The author used AI-assisted tools during the preparation of this study for language editing, organization of the paper structure, LaTeX formatting support, and improving the clarity of the discussion. The experimental design, implementation, numerical results, interpretation, and final responsibility for the paper belong to the author.
+
+\begin{thebibliography}{00}
+
+\bibitem{ren2015faster}
+S. Ren, K. He, R. Girshick, and J. Sun, ``Faster R-CNN: Towards real-time object detection with region proposal networks,'' in \textit{Advances in Neural Information Processing Systems}, vol. 28, pp. 91--99, 2015.
+
+\bibitem{gan2025txlpbc}
+L. Gan, X. Li, and X. Wang, ``A curated and re-annotated peripheral blood cell dataset integrating four public resources,'' \textit{Scientific Data}, vol. 12, article no. 1694, 2025, doi: 10.1038/s41597-025-05980-z.
+
+\bibitem{sohn2020stac}
+K. Sohn, Z. Zhang, C.-L. Li, H. Zhang, C.-Y. Lee, and T. Pfister, ``A simple semi-supervised learning framework for object detection,'' \textit{arXiv preprint arXiv:2005.04757}, 2020.
+
+\bibitem{xu2021softteacher}
+M. Xu, Z. Zhang, H. Hu, J. Wang, L. Wang, F. Wei, X. Bai, and Z. Liu, ``End-to-end semi-supervised object detection with Soft Teacher,'' in \textit{Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)}, pp. 3060--3069, 2021.
+
+\bibitem{shorten2019augmentation}
+C. Shorten and T. M. Khoshgoftaar, ``A survey on image data augmentation for deep learning,'' \textit{Journal of Big Data}, vol. 6, article no. 60, 2019, doi: 10.1186/s40537-019-0197-0.
+
+\bibitem{githubrepo}
+F. Yalçın, ``Semi-supervised WBC detection implementation,'' GitHub repository, 2026. [Online]. Available: \url{https://github.com/fdmylcn/WBC_Detection_ECE664}
+
+\end{thebibliography}
+
+\end{document}
